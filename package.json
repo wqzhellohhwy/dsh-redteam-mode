@@ -1,0 +1,16 @@
+{
+  "name": "@dsh-external/dsh-redteam-mode",
+  "version": "0.1.0",
+  "description": "DSH-native port of codex-redteam-mode: hook-enforced red-team mode state machine + durable operation runtime",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "files": [
+    "lib",
+    "resources"
+  ],
+  "license": "MIT",
+  "exports": {
+    ".": "./lib/index.mjs"
+  }
+}
