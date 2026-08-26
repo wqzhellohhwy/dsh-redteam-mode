@@ -38,7 +38,7 @@
 
 3. 按提示重启会话。
 
-装好之后，你能输入 `/redteam light` 并看到"已开启红队模式"的提示，就说明装好了。
+装好之后，你能输入`/redteam light`或`/redteam on` 并看到"已开启红队模式"的提示，就说明装好了。
 
 ### 怎么确认装好了（可选校验）
 
@@ -55,7 +55,7 @@ node scripts/schema.mjs  工具接口格式检查
 
 - 这两条**不需要 bash**，Windows 的 PowerShell / 命令提示符里直接运行即可。
 - 需要电脑装有 Node.js（用 DSH 一般已自带）。
-- 不想跑校验也没关系：能正常输入 `/redteam light` 并得到开启提示，就算装好了。
+- 不想跑校验也没关系：能正常输入`/redteam light`并得到开启提示，就算装好了。
 
 ### 怎么用
 
@@ -63,17 +63,17 @@ node scripts/schema.mjs  工具接口格式检查
 
 | 你做什么 | 输入 |
 |---|---|
-| 打开红队模式 | `/redteam light`（要完全态就用 `/redteam full`） |
+| 打开红队模式 | `/redteam light`或`/redteam on`（要完全态就用 `/redteam full`） |
 | 描述你的目标 | 用大白话直接说，比如"检查 http://target.local 的登录页有没有 SQL 注入，并给出 PoC" |
 | 看进度 | `redteam_status` |
 | 用完关掉 | `/redteam off` |
 
 具体怎么走：
 
-1. **打开**：输入 `/redteam light`。
+1. **打开**：输入`/redteam light`或`/redteam on`。
 2. **说目标**：用大白话描述你想测什么，插件会自动开工。
-3. **看进度**：随时输入 `redteam_status`。
-4. **关掉**：完事输入 `/redteam off`。
+3. **看进度**：随时输入`redteam_status`。
+4. **关掉**：完事输入`/redteam off`。
 
 几点放心的地方：
 
