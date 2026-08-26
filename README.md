@@ -1,227 +1,144 @@
 # dsh-redteam-mode
 
-**Hook-enforced red-team mode for DeepSeek Harness (DSH).**
+给 **DeepSeek Harness (DSH)** 加一个"红队模式"开关的插件。
 
-A native DSH plugin that ports the architecture of
-[codex-redteam-mode](https://github.com/chAng-L19/codex-redteam-mode) into the
-DeepSeek Harness plugin system — replacing Codex's external hook processes, a
-loopback rewrite proxy, and a stdio MCP server with in-process DSH
-primitives, while keeping the same *structural enforcement* semantics.
+打开后，你用大白话描述一个安全测试目标，它会自动把目标拆成一步一步的计划并执行，
+每步都记录证据；做完后一键关掉，一切恢复正常。
 
-> ⚠️ **Intended use**: authorized security assessment workflows only. See
-> [Usage boundaries](#usage-boundaries) and `resources/skills/SKILL.md`.
+> ⚠️ **重要**：本插件**只用于"已授权"的安全测试**。不要拿它去做没得到许可的事。
+> 详细边界见 `resources/skills/SKILL.md`。
 
 ---
 
-## Why
+## 它有什么用
 
-A one-line system prompt is not enough to keep a capable model from refusing
-mid-task or drifting out of scope. This plugin applies **three layers of
-structural enforcement** and a **durable, evidence-driven operation runtime**:
+- **你只管说目标**。比如"测一下这个登录页有没有 SQL 注入"，它会自动排成计划
+  （先摸清有哪些入口 → 再验证 → 最后出报告），不用你一步步指挥。
+- **不会糊弄你**。它要求证据到位才肯宣布完成，必要的东西没验证完就不会停。
+- **敏感信息自动打码**。key、密码之类不会原样写进存档。
+- **关掉就回归正常**。不开模式时，你的日常开发请求完全不受影响。
 
-1. **Full-match mode switching** — commands like `/redteam full` only fire on an
-   exact whole-message match; look-alike phrases never misfire.
-2. **Turn-level anchoring** — under an active mode, security intents are
-   compiled into a numbered-Clause *Research Brief* and injected into the model's
-   *own* current turn as a user-role message it cannot skip.
-3. **Compiled targets + redaction** — URLs / IPs / hosts / paths are extracted as
-   targets; secrets (keys/tokens/passwords) are redacted before entering the
-   contract.
+## 快速开始
 
-On top of that a persistent **operation runtime** executes the
-`generic-adaptive` workflow with a TerminalJudge gate: the task cannot be
-reported done until required artifacts are verified.
+### 装之前要准备什么
 
-## Features
+只要你**正在正常使用 DeepSeek Harness (DSH)**（能收发消息、能重启会话）就行，
+不用再额外装任何东西，也不用改任何配置。
 
-- 🎯 **Full-match command parsing** — `/redteam full|light|on|off`, `开启/退出红队模式`,
-  `/opsec strict|balanced`. `normal` mode is zero-interference.
-- 🧠 **Intent engine** — scene / risk / taxonomy classification + Clause
-  compilation for every security turn under an active mode.
-- 🔒 **Secret redaction** — sensitive values are stripped from the stored
-  contract.
-- ⚙️ **generic-adaptive workflow** — map-surface → build-hypotheses →
-  validate-path → prove-impact → review-coverage → cleanup → report.
-- 🧾 **Evidence graph + semantic gate** — artifacts tracked with lineage; a
-  model-assisted TerminalJudge (falling back to heuristics) blocks premature
-  completion.
-- 💾 **Durable, session-isolated state** — per-session JSON under `$DSH_HOME`,
-  resumable across restarts; parallel sessions never share state.
-- 🧰 **Native tool surface** — `redteam_run / status / evidence / cancel / events`
-  registered as first-class DSH tools (no MCP server required).
+### 怎么安装
 
-## Tech stack
+就一步：
 
-- **Runtime**: DeepSeek Harness plugin system (Cordis / event waterfall).
-- **Language**: plain ESM (`lib/*.mjs`) — **zero third-party runtime
-  dependencies**, no build step.
-- **Persistence**: JSON files + append-only JSONL via Node `fs`.
+1. 把整个插件文件夹放到你电脑的任意位置（比如桌面）。
+2. 打开 DSH 会话，发送下面这条命令，并把它指向刚才那个插件文件夹：
 
-## Architecture mapping (Codex → DSH)
+   ```
+   dev_install_package 目标/路径插件文件夹所在位置
+   ```
 
-| Codex mechanism | DSH implementation |
+3. 按提示重启会话。
+
+装好之后，你能输入 `/redteam light` 并看到"已开启红队模式"的提示，就说明装好了。
+
+### 怎么确认装好了（可选校验）
+
+如果想更严格地确认，可以在插件文件夹目录里打开 PowerShell / 命令提示符，运行：
+
+```text
+node scripts/smoke.mjs   功能回归检查
+node scripts/schema.mjs  工具接口格式检查
+```
+
+两条命令都显示"通过"（退出码 0），就说明装好了。
+
+说明：
+
+- 这两条**不需要 bash**，Windows 的 PowerShell / 命令提示符里直接运行即可。
+- 需要电脑装有 Node.js（用 DSH 一般已自带）。
+- 不想跑校验也没关系：能正常输入 `/redteam light` 并得到开启提示，就算装好了。
+
+### 怎么用
+
+只需记住四件事：
+
+| 你做什么 | 输入 |
 |---|---|
-| SessionStart / UserPromptSubmit external hook process | `agent/session-start` + `agent/pre-step` waterfall listeners |
-| `model_instructions_file` (config.toml) | persistent activation message on mode switch |
-| Loopback rewrite proxy (127.0.0.1:8765) | in-process pre-step rewrite of the current turn |
-| stdio MCP runtime server | native `redteam_*` tools |
-| MCP tools/list discovery | `ctx.tools.get()` / `ctx.tools.execute()` direct calls |
+| 打开红队模式 | `/redteam light`（要完全态就用 `/redteam full`） |
+| 描述你的目标 | 用大白话直接说，比如"检查 http://target.local 的登录页有没有 SQL 注入，并给出 PoC" |
+| 看进度 | `redteam_status` |
+| 用完关掉 | `/redteam off` |
 
-See [`docs/PORT-DESIGN.md`](docs/PORT-DESIGN.md) for the full design notes.
+具体怎么走：
 
-## Quick start
+1. **打开**：输入 `/redteam light`。
+2. **说目标**：用大白话描述你想测什么，插件会自动开工。
+3. **看进度**：随时输入 `redteam_status`。
+4. **关掉**：完事输入 `/redteam off`。
 
-### Prerequisites
+几点放心的地方：
 
-- DeepSeek Harness (DSH) running with the **web profile** and agent-loop
-  (all standard bundles enabled). The plugin needs `tools`, `agent`, and
-  `system-prompt` bundles — all present by default.
-- Node.js (the DSH host runtime).
+- 平时（没开模式）你的所有请求都**原样处理**，插件不插手。
+- 开着模式时，普通开发请求也**照常**；只有安全类的请求才会被额外编排。
+- 命令是**整句精确匹配**的，日常随口提到"redteam"也不会误开模式。
 
-### Install
+## 可选的配置（一般不用动）
 
-1. Clone the repo anywhere, e.g.:
+默认设置开箱即用。下面这几个"环境变量"一般**不用改**，只有特殊需要才动：
 
-   ```bash
-   git clone https://github.com/<your-github>/dsh-redteam-mode.git
-   ```
-
-2. From a **shell-capable DSH session**, install the plugin into your current
-   profile:
-
-   ```
-   dev_install_package   (target: this repo)
-   ```
-
-   — or, if you manage profiles by hand, place/link the package into your
-   profile's `node_modules/@dsh-external/` and activate it via the plugin
-   bundle layer (see `cordis.patch.yml`).
-
-3. Restart the DSH session (or use the plugin hot-reload) and confirm the
-   loader shows the plugin as **active**.
-
-> **Portability**: no code path is hard-coded to any machine. Runtime state
-> lives under `$DSH_HOME/redteam-mode/`. You can override the locations with
-> `DSH_REDTEAM_STATE_DIR` / `DSH_REDTEAM_OPS_DIR` (see
-> [Configuration](#configuration)).
-
-### Verify the install
-
-```bash
-bash scripts/build.sh    # zero-build validation (syntax + entry import + resources)
-node scripts/smoke.mjs   # 22 known-answer regression checks
-node scripts/schema.mjs  # tool JSON-Schema projection assertions
-```
-
-All three should exit `0`.
-
-## Usage
-
-```
-/redteam light          # enter red-team mode (light)
-/redteam full           # full mode
-/opsec strict           # tighten OPSEC
-<security objective>    # auto-compiled into a Research Brief and dispatched
-redteam_run {objective} # explicit start/advance (or let the model call it)
-redteam_status / redteam_evidence / redteam_events / redteam_cancel
-/redteam off            # exit, restore normal engineering behavior
-```
-
-- **normal mode** passes every turn through untouched.
-- Under an active mode, ordinary development turns still pass through clean;
-  only security-intent turns get the compiled Brief + dispatch overlay.
-
-## Configuration
-
-The plugin reads the following environment variables (all optional):
-
-| Variable | Default | Purpose |
+| 变量 | 默认值 | 作用 |
 |---|---|---|
-| `DSH_HOME` | `~/.dsh` | DSH root used to derive state paths |
-| `DSH_REDTEAM_STATE_DIR` | `$DSH_HOME/redteam-mode/state/` | Per-session state JSON |
-| `DSH_REDTEAM_OPS_DIR` | `$DSH_HOME/redteam-mode/operations/` | Operation ledgers + events |
+| `DSH_HOME` | `~/.dsh` | 插件数据存放的根目录 |
+| `DSH_REDTEAM_STATE_DIR` | `$DSH_HOME/redteam-mode/state/` | 每个会话的状态文件放哪 |
+| `DSH_REDTEAM_OPS_DIR` | `$DSH_HOME/redteam-mode/operations/` | 任务台账和事件记录放哪 |
 
-No other configuration is required. Model-prompt profiles (e.g.
-`Jailbreak.gpt-5.6.md`) live under `resources/prompts/` and are routed by
-model family via `lib/profiles.mjs` — extend the table to add a new family.
+想改的人，在启动 DSH 前设置对应变量即可；不想管的，忽略这节就行。
 
-## Development
+## 它是怎么运作的（想弄明白的看）
 
-```bash
-node --check lib/index.mjs     # any changed module
-bash scripts/build.sh          # full zero-build validation
-node scripts/smoke.mjs         # functional regression
-node scripts/schema.mjs        # tool schema projection guard
+它靠"**先拦一下、再当场塞计划**"的方式工作：你一发消息，它先判断这算不算安全目标；
+如果是，就当场把一份带编号的执行计划作为"输入"喂给模型，模型想跳过这一轮都不行；
+每一步的产出都被记成证据，最后证据没验收到位就不算完成。
+
+## 技术细节
+
+### 架构映射（Codex → DSH）
+
+本插件是把原版 `codex-redteam-mode` 移植到 DSH 的实现，两者能力对等：
+
+| Codex 原版机制 | 本插件（DSH）实现 |
+|---|---|
+| SessionStart / UserPromptSubmit 外部 hook 进程 | `agent/session-start` + `agent/pre-step` 瀑布监听 |
+| `model_instructions_file`（写 config.toml 注入系统提示词） | 模式切换时注入一条持久 activation 消息 |
+| 回环改写代理（127.0.0.1:8765） | 当前轮进程内改写（无网络跳数） |
+| stdio MCP runtime 服务 | 原生注册 `redteam_*` 工具 |
+| MCP tools/list 能力发现 | `ctx.tools.get()` / `ctx.tools.execute()` 进程内直调 |
+
+### 技术栈
+
+- 运行时：DeepSeek Harness 插件体系（Cordis / 事件瀑布）。
+- 语言：纯 ESM（`lib/*.mjs`）——零第三方运行时依赖、无需构建步骤。
+- 持久化：JSON 文件 + 追加式 JSONL（Node `fs`）。
+
+### 目录结构
+
+```text
+lib/index.mjs             入口：事件接线 + 工具注册
+lib/parser.mjs            全匹配 模式/OPSEC 命令解析
+lib/intent.mjs            意图引擎
+lib/state.mjs             每会话状态机 + 持久化
+lib/controller.mjs        每轮处理（调度 / 续跑 / 终局）
+lib/profiles.mjs          模型族 → 档案路由
+lib/runtime/*.mjs         目标编译 / 工作流 / 台账 / 工具调用 / 证据 / 判定 / 操作
+resources/                指令契约 + 越狱档案 + 边界策略
+scripts/                  校验脚本
+docs/                     移植设计说明
 ```
 
-To validate, commit, create the public GitHub repo, and push in one go:
+## 用途边界
 
-```bash
-bash scripts/publish.sh        # needs gh CLI authenticated; see REPO_NAME/REPO_DESC env
-```
+- 仅限**已授权**的安全评估。
+- 不可逆的操作，仍会要求你**明确确认**后才执行。
 
-Layout:
+## 许可证
 
-```
-lib/index.mjs              plugin entry: event wiring + tool registration
-lib/parser.mjs             mode/opsec command parsing (full-match semantics)
-lib/intent.mjs             intent engine: scene/risk/taxonomy/Clause compiler
-lib/state.mjs              per-session state machine + JSON persistence
-lib/controller.mjs         process_turn (dispatch/resume/terminal routing)
-lib/profiles.mjs           model-family → supplemental profile routing
-lib/runtime/*.mjs          goal compiler / workflow / store / broker / evidence / judge / operations
-resources/                 instruction.ctf.md + Jailbreak.*.md + boundary policy (original assets)
-scripts/                   build validation + smoke + schema guards
-docs/                      port design notes (knowledge base)
-```
-
-Contributions should follow the portability rules in
-`docs/PORT-DESIGN.md` (§6): no absolute paths, no machine-specific values,
-no committing runtime state.
-
-## Usage boundaries
-
-This plugin inherits the original project's MIT license and **intended-use
-boundary: authorized security assessment only**. `resources/skills/SKILL.md`
-(redteam-boundary-policy) defines the operational boundary; irreversible
-actions still require explicit confirmation (authorized-research-context §5).
-
-## License
-
-[MIT](LICENSE) © dsh-redteam-mode contributors.
-
----
-
-# 中文说明
-
-**dsh-redteam-mode**：把 [codex-redteam-mode](https://github.com/chAng-L19/codex-redteam-mode)
-的"钩子强制 + 意图编译 + 持久化运行时"红队模式架构，原生移植进 **DeepSeek Harness (DSH)**
-插件体系。用进程内 DSH 原语替换了原版的外部 hook 进程、回环改写代理与 stdio MCP
-服务，同时保留同等的结构性强制语义。
-
-**使用前提**：仅限**已授权**的安全评估工作流（操作边界见 `resources/skills/SKILL.md`）。
-
-**快速开始**
-```bash
-git clone https://github.com/<your-github>/dsh-redteam-mode.git
-# 在可执行 shell 的 DSH 会话里：
-dev_install_package   # 目标指向本仓库
-# 校验
-bash scripts/build.sh && node scripts/smoke.mjs && node scripts/schema.mjs
-```
-
-**常用命令**
-```
-/redteam light | full      # 进入红队模式
-/opsec strict              # 收紧 OPSEC
-<安全目标描述>              # 自动编译为 Research Brief 并调度
-redteam_run / status / evidence / events / cancel
-/redteam off               # 退出，恢复正常工程行为
-```
-
-**可移植性**：代码零本机硬编码路径；运行时数据存于 `$DSH_HOME/redteam-mode/`
-（可用 `DSH_REDTEAM_STATE_DIR` / `DSH_REDTEAM_OPS_DIR` 覆盖）。
-
-**技术栈**：纯 ESM、零第三方运行时依赖、无构建步骤；状态/台账用 JSON + JSONL 持久化。
-
-详细设计见 [`docs/PORT-DESIGN.md`](docs/PORT-DESIGN.md)，MIT 协议。
+本项目使用 [MIT](LICENSE) 协议。
