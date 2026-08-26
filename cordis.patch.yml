@@ -1,0 +1,8 @@
+# dsh-redteam-mode bundle patch: hook-enforced red-team mode state machine
+# + durable operation runtime. Installed 2026-08-25: bundle manifest added to
+# activate the plugin the same way as dsh-mode-boost (dsh.bundle.patch ->
+# bundles layer).
+- insert:
+    - id: redteam-mode
+      name: '@dsh-external/dsh-redteam-mode'
+      config: {}

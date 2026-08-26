@@ -33,4 +33,7 @@ for f in resources/instruction.ctf.md resources/prompts/Jailbreak.default.md res
   [ -f "$f" ] || { echo "missing resource: $f" >&2; exit 1; }
 done
 
+echo "=== Tool JSON-Schema projection guard ==="
+node scripts/schema.mjs
+
 echo "=== Build complete (zero-build validated) ==="

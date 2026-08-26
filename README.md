@@ -1,75 +1,227 @@
-# @dsh-external/dsh-redteam-mode
+# dsh-redteam-mode
 
-DSH 原生移植版 [codex-redteam-mode](https://github.com/chAng-L19/codex-redteam-mode) v2.1.0。
-把"钩子强制 + 意图编译 + 持久化运行时"的红队模式架构完整搬进 DeepSeek Harness，并用 DSH 的进程内能力替换了原版的三个外挂件。
+**Hook-enforced red-team mode for DeepSeek Harness (DSH).**
 
-## 架构映射（Codex → DSH）
+A native DSH plugin that ports the architecture of
+[codex-redteam-mode](https://github.com/chAng-L19/codex-redteam-mode) into the
+DeepSeek Harness plugin system — replacing Codex's external hook processes, a
+loopback rewrite proxy, and a stdio MCP server with in-process DSH
+primitives, while keeping the same *structural enforcement* semantics.
 
-| Codex 原版机制 | DSH 实现 | 改进 |
-|---|---|---|
-| SessionStart / UserPromptSubmit 外部 hook 进程 | `ctx.on('agent/session-start')` + `agent/pre-step` 瀑布监听 | 进程内零开销；hook 崩溃自动放行不阻塞会话 |
-| `model_instructions_file` 写 config.toml 注入系统提示词 | 模式激活时注入一条持久 activation 消息（契约+档案+授权上下文） | 不碰宿主配置；随会话历史天然持久 |
-| 127.0.0.1:8765 回环改写代理（含伪造对话历史） | pre-step 内联改写：Research Brief + 编号 Clause + 锚点保全校验逻辑同源 | 无网络跳数、无伪造历史；上下文注入即可达成同等锚定效果且更稳 |
-| stdio MCP runtime server + mcp_servers 配置 | 原生注册 `redteam_*` 五工具 | ToolBroker 经 `ctx.tools.execute` 直调任意已注册 DSH 工具 |
-| ToolBroker MCP tools/list 发现 | `ctx.tools.get()` 实时解析能力→工具映射 | 能力缺失自动降级为 host-only handoff（保留原 next_action_spec 契约） |
+> ⚠️ **Intended use**: authorized security assessment workflows only. See
+> [Usage boundaries](#usage-boundaries) and `resources/skills/SKILL.md`.
 
-## 强制手段（与原版对齐）
+---
 
-- **模式命令全匹配**才生效（`/redteam full|light|on|off`、`开启/退出红队模式`、`/opsec strict|balanced`），句中出现的同形词绝不误触发。
-- normal 态**零干扰**：普通开发请求原样通过。
-- redteam-light/full 态下安全意图轮次被编译为编号 Clause 的 Research Brief 并以 user-role 消息注入当轮——模型无法跳过自己这轮的输入。
-- 目标编译提取 URL/IP/主机/路径为 targets，敏感值（key/token/password）先脱敏再入契约。
-- generic-adaptive 七阶段工作流（map-surface → build-hypotheses → validate-path → prove-impact → review-coverage → cleanup → report），证据血缘图 + TerminalJudge 终局门禁：必需工件未验证不得完成。
+## Why
 
-## 相对原版的效果增强
+A one-line system prompt is not enough to keep a capable model from refusing
+mid-task or drifting out of scope. This plugin applies **three layers of
+structural enforcement** and a **durable, evidence-driven operation runtime**:
 
-1. **语义终审**：TerminalJudge 通过捕获到的 llm 路由调用模型做工件级语义核验（原版仅启发式），不可用时自动降级回启发式。
-2. **每轮 token 更省**：激活消息只发一次（契约+档案），后续轮次仅注轻量 brief 行；原版把全部系统层内容常驻每个请求。
-3. **会话隔离**：状态按 session id 落盘 `$DSH_HOME/redteam-mode/state/<session>.json`，操作台账在 `operations/`（JSON + events.jsonl），并行会话互不可见，重启可恢复。
-4. **首轮prefill纪律**：五工具 schema 全部短描述，细节进 tool result。
+1. **Full-match mode switching** — commands like `/redteam full` only fire on an
+   exact whole-message match; look-alike phrases never misfire.
+2. **Turn-level anchoring** — under an active mode, security intents are
+   compiled into a numbered-Clause *Research Brief* and injected into the model's
+   *own* current turn as a user-role message it cannot skip.
+3. **Compiled targets + redaction** — URLs / IPs / hosts / paths are extracted as
+   targets; secrets (keys/tokens/passwords) are redacted before entering the
+   contract.
 
-## 使用
+On top of that a persistent **operation runtime** executes the
+`generic-adaptive` workflow with a TerminalJudge gate: the task cannot be
+reported done until required artifacts are verified.
 
-```
-/redteam light        # 进入红队模式（light）
-/redteam full         # 完全态
-/opsec strict         # 收紧 OPSEC
-<安全目标描述>          # 自动编译为 Research Brief 并调度
-redteam_run {objective}   # 显式启动/推进操作（也可让模型自主调用）
-redteam_status / redteam_evidence / redteam_events / redteam_cancel
-/redteam off          # 退出，恢复正常工程行为
-```
+## Features
 
-## 开发
+- 🎯 **Full-match command parsing** — `/redteam full|light|on|off`, `开启/退出红队模式`,
+  `/opsec strict|balanced`. `normal` mode is zero-interference.
+- 🧠 **Intent engine** — scene / risk / taxonomy classification + Clause
+  compilation for every security turn under an active mode.
+- 🔒 **Secret redaction** — sensitive values are stripped from the stored
+  contract.
+- ⚙️ **generic-adaptive workflow** — map-surface → build-hypotheses →
+  validate-path → prove-impact → review-coverage → cleanup → report.
+- 🧾 **Evidence graph + semantic gate** — artifacts tracked with lineage; a
+  model-assisted TerminalJudge (falling back to heuristics) blocks premature
+  completion.
+- 💾 **Durable, session-isolated state** — per-session JSON under `$DSH_HOME`,
+  resumable across restarts; parallel sessions never share state.
+- 🧰 **Native tool surface** — `redteam_run / status / evidence / cancel / events`
+  registered as first-class DSH tools (no MCP server required).
+
+## Tech stack
+
+- **Runtime**: DeepSeek Harness plugin system (Cordis / event waterfall).
+- **Language**: plain ESM (`lib/*.mjs`) — **zero third-party runtime
+  dependencies**, no build step.
+- **Persistence**: JSON files + append-only JSONL via Node `fs`.
+
+## Architecture mapping (Codex → DSH)
+
+| Codex mechanism | DSH implementation |
+|---|---|
+| SessionStart / UserPromptSubmit external hook process | `agent/session-start` + `agent/pre-step` waterfall listeners |
+| `model_instructions_file` (config.toml) | persistent activation message on mode switch |
+| Loopback rewrite proxy (127.0.0.1:8765) | in-process pre-step rewrite of the current turn |
+| stdio MCP runtime server | native `redteam_*` tools |
+| MCP tools/list discovery | `ctx.tools.get()` / `ctx.tools.execute()` direct calls |
+
+See [`docs/PORT-DESIGN.md`](docs/PORT-DESIGN.md) for the full design notes.
+
+## Quick start
+
+### Prerequisites
+
+- DeepSeek Harness (DSH) running with the **web profile** and agent-loop
+  (all standard bundles enabled). The plugin needs `tools`, `agent`, and
+  `system-prompt` bundles — all present by default.
+- Node.js (the DSH host runtime).
+
+### Install
+
+1. Clone the repo anywhere, e.g.:
+
+   ```bash
+   git clone https://github.com/<your-github>/dsh-redteam-mode.git
+   ```
+
+2. From a **shell-capable DSH session**, install the plugin into your current
+   profile:
+
+   ```
+   dev_install_package   (target: this repo)
+   ```
+
+   — or, if you manage profiles by hand, place/link the package into your
+   profile's `node_modules/@dsh-external/` and activate it via the plugin
+   bundle layer (see `cordis.patch.yml`).
+
+3. Restart the DSH session (or use the plugin hot-reload) and confirm the
+   loader shows the plugin as **active**.
+
+> **Portability**: no code path is hard-coded to any machine. Runtime state
+> lives under `$DSH_HOME/redteam-mode/`. You can override the locations with
+> `DSH_REDTEAM_STATE_DIR` / `DSH_REDTEAM_OPS_DIR` (see
+> [Configuration](#configuration)).
+
+### Verify the install
 
 ```bash
-bash scripts/build.sh     # 零构建校验：语法检查 + 入口导入 smoke + 资源存在性
-node scripts/smoke.mjs    # 22 项已知答案回归
+bash scripts/build.sh    # zero-build validation (syntax + entry import + resources)
+node scripts/smoke.mjs   # 22 known-answer regression checks
+node scripts/schema.mjs  # tool JSON-Schema projection assertions
 ```
 
-纯 ESM、零第三方依赖（llm 服务运行期按需动态解析）。热重载：改 lib/*.mjs → `dev_reload_package`。
+All three should exit `0`.
 
-## 结构
+## Usage
 
 ```
-lib/index.mjs            插件入口：事件接线 + 工具注册
-lib/parser.mjs           模式命令解析（全匹配语义）
-lib/intent.mjs           意图引擎：场景/风险/taxonomy/Clause 编译
-lib/state.mjs            会话状态机 + JSON 持久化
-lib/controller.mjs       process_turn 移植（dispatch/resume/terminal 分流）
-lib/profiles.mjs         模型族 → 补充档案路由（fnmatch，数据表可扩）
-lib/runtime/goal.mjs     GoalContract 编译器（目标提取+脱敏）
-lib/runtime/workflow.mjs generic-adaptive 工作流规格（内嵌 TOML 等价数据）
-lib/runtime/store.mjs    操作台账（幂等键 + 事件流）
-lib/runtime/broker.mjs   ToolBroker：能力→DSH 工具直调/host-only 回传
-lib/runtime/evidence.mjs 证据血缘图
-lib/runtime/judge.mjs    语义核验 + TerminalJudge
-lib/runtime/operations.mjs 运行时门面（start/runBatch/cancel/events）
-resources/               instruction.ctf.md + Jailbreak.*.md + boundary-policy（原版资产原样保留）
-scripts/build.sh         零构建校验
-scripts/smoke.mjs        已知答案回归
+/redteam light          # enter red-team mode (light)
+/redteam full           # full mode
+/opsec strict           # tighten OPSEC
+<security objective>    # auto-compiled into a Research Brief and dispatched
+redteam_run {objective} # explicit start/advance (or let the model call it)
+redteam_status / redteam_evidence / redteam_events / redteam_cancel
+/redteam off            # exit, restore normal engineering behavior
 ```
 
-## 边界声明
+- **normal mode** passes every turn through untouched.
+- Under an active mode, ordinary development turns still pass through clean;
+  only security-intent turns get the compiled Brief + dispatch overlay.
 
-本插件继承原版 MIT 授权与用途边界：仅用于已授权的安全评估工作流。`resources/skills/SKILL.md`（redteam-boundary-policy）定义操作边界；不可逆动作仍要求显式确认（authorized-research-context 第 5 条）。
+## Configuration
+
+The plugin reads the following environment variables (all optional):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DSH_HOME` | `~/.dsh` | DSH root used to derive state paths |
+| `DSH_REDTEAM_STATE_DIR` | `$DSH_HOME/redteam-mode/state/` | Per-session state JSON |
+| `DSH_REDTEAM_OPS_DIR` | `$DSH_HOME/redteam-mode/operations/` | Operation ledgers + events |
+
+No other configuration is required. Model-prompt profiles (e.g.
+`Jailbreak.gpt-5.6.md`) live under `resources/prompts/` and are routed by
+model family via `lib/profiles.mjs` — extend the table to add a new family.
+
+## Development
+
+```bash
+node --check lib/index.mjs     # any changed module
+bash scripts/build.sh          # full zero-build validation
+node scripts/smoke.mjs         # functional regression
+node scripts/schema.mjs        # tool schema projection guard
+```
+
+To validate, commit, create the public GitHub repo, and push in one go:
+
+```bash
+bash scripts/publish.sh        # needs gh CLI authenticated; see REPO_NAME/REPO_DESC env
+```
+
+Layout:
+
+```
+lib/index.mjs              plugin entry: event wiring + tool registration
+lib/parser.mjs             mode/opsec command parsing (full-match semantics)
+lib/intent.mjs             intent engine: scene/risk/taxonomy/Clause compiler
+lib/state.mjs              per-session state machine + JSON persistence
+lib/controller.mjs         process_turn (dispatch/resume/terminal routing)
+lib/profiles.mjs           model-family → supplemental profile routing
+lib/runtime/*.mjs          goal compiler / workflow / store / broker / evidence / judge / operations
+resources/                 instruction.ctf.md + Jailbreak.*.md + boundary policy (original assets)
+scripts/                   build validation + smoke + schema guards
+docs/                      port design notes (knowledge base)
+```
+
+Contributions should follow the portability rules in
+`docs/PORT-DESIGN.md` (§6): no absolute paths, no machine-specific values,
+no committing runtime state.
+
+## Usage boundaries
+
+This plugin inherits the original project's MIT license and **intended-use
+boundary: authorized security assessment only**. `resources/skills/SKILL.md`
+(redteam-boundary-policy) defines the operational boundary; irreversible
+actions still require explicit confirmation (authorized-research-context §5).
+
+## License
+
+[MIT](LICENSE) © dsh-redteam-mode contributors.
+
+---
+
+# 中文说明
+
+**dsh-redteam-mode**：把 [codex-redteam-mode](https://github.com/chAng-L19/codex-redteam-mode)
+的"钩子强制 + 意图编译 + 持久化运行时"红队模式架构，原生移植进 **DeepSeek Harness (DSH)**
+插件体系。用进程内 DSH 原语替换了原版的外部 hook 进程、回环改写代理与 stdio MCP
+服务，同时保留同等的结构性强制语义。
+
+**使用前提**：仅限**已授权**的安全评估工作流（操作边界见 `resources/skills/SKILL.md`）。
+
+**快速开始**
+```bash
+git clone https://github.com/<your-github>/dsh-redteam-mode.git
+# 在可执行 shell 的 DSH 会话里：
+dev_install_package   # 目标指向本仓库
+# 校验
+bash scripts/build.sh && node scripts/smoke.mjs && node scripts/schema.mjs
+```
+
+**常用命令**
+```
+/redteam light | full      # 进入红队模式
+/opsec strict              # 收紧 OPSEC
+<安全目标描述>              # 自动编译为 Research Brief 并调度
+redteam_run / status / evidence / events / cancel
+/redteam off               # 退出，恢复正常工程行为
+```
+
+**可移植性**：代码零本机硬编码路径；运行时数据存于 `$DSH_HOME/redteam-mode/`
+（可用 `DSH_REDTEAM_STATE_DIR` / `DSH_REDTEAM_OPS_DIR` 覆盖）。
+
+**技术栈**：纯 ESM、零第三方运行时依赖、无构建步骤；状态/台账用 JSON + JSONL 持久化。
+
+详细设计见 [`docs/PORT-DESIGN.md`](docs/PORT-DESIGN.md)，MIT 协议。

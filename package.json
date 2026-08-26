@@ -1,13 +1,30 @@
 {
   "name": "@dsh-external/dsh-redteam-mode",
   "version": "0.1.0",
-  "description": "DSH-native port of codex-redteam-mode: hook-enforced red-team mode state machine + durable operation runtime",
+  "description": "DSH-native port of codex-redteam-mode: hook-enforced red-team mode state machine + durable operation runtime for DeepSeek Harness (DSH)",
   "private": true,
   "type": "module",
   "main": "./lib/index.mjs",
   "files": [
     "lib",
-    "resources"
+    "resources",
+    "docs",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "redteam",
+    "security-assessment",
+    "pentest",
+    "authorized-testing"
   ],
   "license": "MIT",
   "exports": {
