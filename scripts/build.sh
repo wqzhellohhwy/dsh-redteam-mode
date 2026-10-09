@@ -7,14 +7,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "=== Syntax check lib/**/*.mjs ==="
+echo "=== Syntax check lib/**/*.(js|mjs) ==="
 fail=0
 while IFS= read -r file; do
   if ! node --check "$file"; then
     echo "syntax FAIL: $file" >&2
     fail=1
   fi
-done < <(find lib -name '*.mjs' -type f)
+done < <(find lib -type f \( -name '*.mjs' -o -name '*.js' \) ! -name '*.bak')
 if [ "$fail" -ne 0 ]; then exit 1; fi
 
 echo "=== Import smoke (entry resolves without host) ==="
@@ -26,7 +26,7 @@ import(pathToFileURL(process.argv[1]).href).then((mod) => {
   }
   console.log('entry OK:', mod.name);
 }).catch((error) => { console.error('import FAIL:', error.message); process.exit(1); })
-" "$ROOT/lib/index.mjs"
+" "$ROOT/lib/index.js"
 
 echo "=== Resources present ==="
 for f in resources/instruction.ctf.md resources/prompts/Jailbreak.default.md resources/skills/SKILL.md; do

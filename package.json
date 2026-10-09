@@ -1,15 +1,20 @@
 {
   "name": "@dsh-external/dsh-redteam-mode",
-  "version": "0.1.0",
-  "description": "DSH-native port of codex-redteam-mode: hook-enforced red-team mode state machine + durable operation runtime for DeepSeek Harness (DSH)",
+  "version": "2.0.0",
+  "description": "DSH 2.0 red-team mode: /redteam command plane + dynamic prompt contract + agent/pre-step enforcement hook + durable operation runtime (port of codex-redteam-mode 2.1.0)",
   "private": true,
   "type": "module",
-  "main": "./lib/index.mjs",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "lib",
     "resources",
     "docs",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.md"
   ],
   "dsh": {
     "bundle": {
@@ -20,14 +25,24 @@
     "dsh",
     "deepseek-harness",
     "cordis",
+    "cordis-plugin",
     "plugin",
     "redteam",
+    "red-team",
     "security-assessment",
     "pentest",
     "authorized-testing"
   ],
   "license": "MIT",
-  "exports": {
-    ".": "./lib/index.mjs"
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
   }
 }

@@ -84,3 +84,86 @@ node scripts/schema.mjs    # 工具 schema 投影断言（§4 的 bug 防线）
 ## 8. 授权与边界
 
 继承原版 MIT 授权与用途边界：**仅限已授权安全评估**。`resources/skills/SKILL.md`（redteam-boundary-policy）定义操作边界；不可逆动作仍需显式确认（authorized-research-context 第 5 条）。
+
+---
+
+## 9. DSH 2.0 改造（v2.0.0）
+
+### 9.1 "钩子挂不上去"的真实根因
+
+排查结论（按影响排序）：
+
+1. **插件从未被装配**。profile 的 `dependencies` / `dsh.profile.bundles` / `cordis.patch.yml`
+   三处都没有它，`node_modules` 里也没有链接，`$DSH_HOME/redteam-mode/` 连状态目录都没生成过。
+   钩子代码写得再对，也从来没被执行——第一优先级永远是"先确认它在 loader 里"。
+2. **预设形态已换代**。旧版把预设写成目录 `$DSH_HOME/.agent-presets/<id>/`（`preset.yml` +
+   `agent.cordis.yml`）。DSH 0.2 起预设改为 `@deepseek-ai/dsh-agent-preset` 的 **loader 声明行**，
+   目录扫描被删除，旧目录不会被任何代码读取。
+3. **没有命令面**。旧实现只能靠在 `agent/pre-step` 里对整句文本做全匹配来切模式，
+   交互上等于"发了命令没反应"，容易被判断成钩子失效。
+4. **作用域过滤**。即使挂上了，DSH 的 agent 事件是 scope-filtered 的：不带 `{ global: true }`
+   的监听器会在运行前被丢弃。这一点在旧代码注释里已经猜到，但当时没有可运行的装配去验证。
+
+### 9.2 v2.0 的三层接线
+
+| 层 | API | 职责 |
+|---|---|---|
+| 命令层 | `ctx.commands.register()` | `/redteam`、`/opsec` 直接改会话状态，零 token、零模型消息 |
+| 提示词层 | `ctx.systemPrompt.section({ text: (ctx) => … })` | 模式激活时渲染红队合同；`normal` 态返回空串，段落自动消失 |
+| 每轮钩子层 | `ctx.on('agent/pre-step', h, { global: true })` | 编译当轮安全目标为 Research Brief + 操作派发，普通轮次原样放行 |
+
+三者都在 `apply()` 内通过 `ctx.effect` / `ctx.on` / `ctx.inject` 注册，卸载即整体清理。
+
+### 9.3 0.2 API 事实（本机实测，非推测）
+
+- **agent 事件的 scope 过滤**：`agentEvents` 用 `scopeTarget(agent, agent)` 作为 dispatch 的
+  `thisArg`；`EventsService.dispatch()` 里 `hooks.filter(h => h.global || !filter || filter(h.ctx))`。
+  所以跨作用域监听必须 `{ global: true }`；**不带** `global` 的监听天然只对命中该作用域的 agent 生效
+  ——这正是 preset 挂载想要的语义。
+- **`agent/pre-step`**：waterfall，payload `{ agent, messages, turn, step, signal }`，
+  默认 decision `{ kind: 'enter', messages }`；改写时必须展开原 decision 以保留其它字段。
+- **`agent/created`**：serial，payload `{ agent, source, signal }`，用于预载状态与迁移。
+- **命令面**：`ctx.commands.register({ name, description, input: { hint }, handler })`；
+  handler 收到 `{ commandId, agent, rawInput, attachments, signal }`，返回
+  `{ kind: 'success' | 'error', text }`。命令**不产生模型消息**，所以切换模式是瞬时的。
+  默认全局注册；要限定到单个 agent，需把 `commands` 放进插件 `inject` 并挂在该 agent 的上下文下。
+- **提示词段落**：`text` 可以是函数，每次 `assemble()` 求值；**空段落会从提示词里消失**，
+  这是"normal 态零干扰"得以成立的关键。
+- **消息结构**：`MessageBase = { id, content, source }`，user 消息再加 `role: 'user'`；
+  `source.kind` 是自定义来源标记（本插件用 `redteam-brief` / `redteam-mode`），
+  UI 与后续钩子据此识别"这条不是用户写的"。
+- **`ctx.inject([deps], cb)`** 是可选依赖的正确姿势：缺服务的 profile 只是跳过该回调，
+  而不是让整个插件激活失败。
+
+### 9.4 双挂载与幂等
+
+`cordis.patch.yml` 插入两行：
+
+```yaml
+- id: redteam-mode          # role: host —— 工具/命令/全局钩子
+- id: preset-redteam        # @deepseek-ai/dsh-agent-preset，内含 role: preset 的子行
+```
+
+两个实例共享 `lib/session.mjs` 的进程内会话缓存，以及 `lib/hooks.mjs` 的 `seen` 集合；
+再加一道"本轮已存在 `redteam-brief` 就跳过"的检查，所以同一轮永远不会被注入两次。
+实测轨迹里 `preset` 先注入、`host` 紧接着 `alreadyInjected: true` 跳过，即为该机制的现场证据。
+
+### 9.5 文件迁移对照
+
+| 旧 | 新 | 说明 |
+|---|---|---|
+| `lib/index.mjs` | `lib/index.js` | 入口改名以匹配 `main`/`exports`；旧实现留在 `lib/index.v1.mjs.bak` |
+| — | `lib/commands.mjs` | 命令面（新增） |
+| — | `lib/prompt.mjs` | 动态提示词合同（新增，替代旧 activation 消息） |
+| — | `lib/hooks.mjs` | 钩子从入口拆出，含幂等与系统消息守卫（新增） |
+| — | `lib/session.mjs` | 会话状态缓存与 pending 迁移（新增） |
+| — | `lib/trace.mjs` | 钩子轨迹，让"钩子跑没跑"可外部观测（新增） |
+| — | `scripts/verify.mjs` | 离线装配 + 行为验证 32 项（新增） |
+| `cordis.patch.yml`（1 行 insert） | 2 行（插件行 + 预设行） | 预设晋升为一等公民 |
+
+### 9.6 可观测性约定
+
+`$DSH_HOME/redteam-mode/hook-trace.jsonl` 是刻意留下的验证面：每条 `pre-step`、`command`、
+`brief-injected`、`plugin-mounted` 都落一行 JSON。判断"钩子是否挂上"时**不要**看模型回复，
+直接看这个文件——`DSH_REDTEAM_TRACE=0` 可关闭。
+
