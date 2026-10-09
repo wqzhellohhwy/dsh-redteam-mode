@@ -173,6 +173,7 @@ resources/                指令契约 + 越狱档案 + 边界策略
 scripts/verify.mjs        装配与行为验证（32 项，离线）
 scripts/smoke.mjs         功能回归
 scripts/schema.mjs        工具 schema 合规断言
+scripts/asar-read.mjs     读 DSH 内部包源码（app.asar 解包），维护时核对官方 API 用
 docs/                     移植设计与验证说明
 ```
 

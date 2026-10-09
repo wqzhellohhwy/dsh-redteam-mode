@@ -9,7 +9,7 @@
 |---|---|---|
 | bundle 装配 | ✅ | profile `package.json` 的 `dependencies` + `dsh.profile.bundles` 均有该包；`cordis.yml` 组合结果含 `redteam-mode` 与 `preset-redteam` 两行 |
 | host 插件激活 | ✅ | `hook-trace.jsonl`: `{"ev":"plugin-mounted","role":"host"}` |
-| 预设注册 + 预设插件激活 | ✅ | loader `preset-redteam` 状态 `active`；trace: `{"ev":"plugin-mounted","role":"preset","defaultMode":"redteam-full"}` |
+| 预设注册 + 预设插件激活 | ✅ | `ctx.agentPresets.list(agent)` 返回含 `{"id":"redteam","name":"红队模式","order":20}` 的预设清单；`resolve('redteam')` 成功；`compositionInventory()` 同样列出；loader `preset-redteam` 状态 `active`；trace: `{"ev":"plugin-mounted","role":"preset","defaultMode":"redteam-full"}` |
 | 提示词段落注册 | ✅ | trace: `prompt-section-registered`（host + preset 各一次） |
 | **agent/pre-step 钩子真的跑了** | ✅ | trace 多轮 `{"ev":"pre-step","role":"host","mode":"normal",...}`；模式激活后出现 `{"ev":"brief-injected",...}` |
 | `/redteam` 命令注册 | ✅ | 运行期 `ctx.commands.list(agent)` 含 `redteam`、`opsec`；`find(agent,'redteam') === true` |
@@ -50,6 +50,19 @@ Get-Content "$env:USERPROFILE\.dsh\redteam-mode\hook-trace.jsonl" -Tail 20
                "memory_review","opsec","permission","plan","redteam"],
   "findRedteam": true }
 ```
+
+预设注册表（进程内查询，注意这些方法都是 async，探针忘了 `await` 会误报为空数组）：
+
+```json
+{ "list(agent)": [ { "id": "standard", "order": 1 }, { "id": "ptc", "order": 2 },
+                   { "id": "minimal", "order": 3 }, { "id": "cordis", "order": 4 },
+                   { "id": "redteam", "name": "红队模式", "order": 20,
+                     "description": "已授权安全测试专用预设：persona 即红队合同，进入即开启红队模式；…" },
+                   { "id": "clean-agent", "name": "Clean Agent", "order": 50 } ],
+  "resolve(redteam)": { "id": "redteam" } }
+```
+
+——即 GUI 的预设选择器能看到并选中"红队模式"。
 
 命令执行 + 钩子 dispatch 联合探针：
 
